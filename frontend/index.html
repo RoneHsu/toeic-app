@@ -560,14 +560,6 @@
           </select>
         </div>
         <div class="field">
-          <label>Part</label>
-          <select id="toeicPart">
-            <option value="5" selected>Part 5</option>
-            <option value="6">Part 6</option>
-            <option value="7">Part 7</option>
-          </select>
-        </div>
-        <div class="field">
           <label>題數 (1–30)</label>
           <input type="number" id="count" value="5" min="1" max="30" />
         </div>
@@ -712,7 +704,7 @@ async function startQuick() {
     const params = {
       question_type: document.getElementById('questionType').value,
       difficulty: document.getElementById('difficulty').value,
-      toeic_part: parseInt(document.getElementById('toeicPart').value),
+      toeic_part: { incomplete_sentence: 5, text_completion: 6, reading: 7, grammar: 5, vocabulary: 5 }[document.getElementById('questionType').value] || 5,
       count: Math.min(30, parseInt(document.getElementById('count').value) || 5),
       use_rag: true,
     };
