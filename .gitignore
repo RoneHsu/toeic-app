@@ -1,0 +1,24 @@
+# Environment
+.env
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# RAG / DB
+backend/chroma_db/
+backend/simple_cache/
+
+# Docs (PDFs too large for git)
+docs/*.pdf
+
+# Claude Code
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
