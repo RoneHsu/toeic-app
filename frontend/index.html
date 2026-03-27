@@ -299,6 +299,28 @@
     }
     @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
 
+    /* ── PASSAGE BLOCK ── */
+    .passage-block {
+      background: var(--bg2);
+      border: 1px solid var(--accent2);
+      border-left: 4px solid var(--accent2);
+      border-radius: 14px;
+      padding: 24px 28px;
+      margin-bottom: 8px;
+      font-size: 0.95rem;
+      line-height: 1.8;
+      color: var(--text);
+      white-space: pre-wrap;
+    }
+    .passage-label {
+      font-size: 0.75rem;
+      color: var(--accent2);
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      margin-bottom: 12px;
+      text-transform: uppercase;
+    }
+
     /* ── QUESTION CARD ── */
     .question-card {
       background: var(--bg3);
@@ -543,7 +565,7 @@
       <div class="settings-grid">
         <div class="field">
           <label>題型</label>
-          <select id="questionType">
+          <select id="questionType" onchange="onTypeChange()">
             <option value="incomplete_sentence">不完整句子 (Part 5)</option>
             <option value="text_completion">短文填空 (Part 6)</option>
             <option value="reading">閱讀理解 (Part 7)</option>
@@ -738,12 +760,16 @@ async function startFullTest() {
   const sections = [
     { label: 'Part 5 — 不完整句子 (1–15)', type: 'incomplete_sentence', part: 5, count: 15, diff: 'medium' },
     { label: 'Part 5 — 不完整句子 (16–30)', type: 'incomplete_sentence', part: 5, count: 15, diff: 'hard' },
-    { label: 'Part 6 — 短文填空 (31–46)', type: 'text_completion', part: 6, count: 8, diff: 'medium' },
-    { label: 'Part 6 — 短文填空 (補充)', type: 'text_completion', part: 6, count: 8, diff: 'hard' },
-    { label: 'Part 7 — 閱讀理解 (47–60)', type: 'reading', part: 7, count: 14, diff: 'medium' },
-    { label: 'Part 7 — 閱讀理解 (61–74)', type: 'reading', part: 7, count: 14, diff: 'medium' },
-    { label: 'Part 7 — 閱讀理解 (75–88)', type: 'reading', part: 7, count: 13, diff: 'hard' },
-    { label: 'Part 7 — 閱讀理解 (89–100)', type: 'reading', part: 7, count: 13, diff: 'hard' },
+    { label: 'Part 6 — 短文填空 第1篇', type: 'text_completion', part: 6, count: 4, diff: 'medium' },
+    { label: 'Part 6 — 短文填空 第2篇', type: 'text_completion', part: 6, count: 4, diff: 'medium' },
+    { label: 'Part 6 — 短文填空 第3篇', type: 'text_completion', part: 6, count: 4, diff: 'hard' },
+    { label: 'Part 6 — 短文填空 第4篇', type: 'text_completion', part: 6, count: 4, diff: 'hard' },
+    { label: 'Part 7 — 閱讀理解 單篇×3', type: 'reading', part: 7, count: 9, diff: 'medium' },
+    { label: 'Part 7 — 閱讀理解 單篇×3', type: 'reading', part: 7, count: 9, diff: 'medium' },
+    { label: 'Part 7 — 閱讀理解 雙篇×2', type: 'reading', part: 7, count: 9, diff: 'hard' },
+    { label: 'Part 7 — 閱讀理解 雙篇×2', type: 'reading', part: 7, count: 9, diff: 'hard' },
+    { label: 'Part 7 — 閱讀理解 三篇×1', type: 'reading', part: 7, count: 9, diff: 'hard' },
+    { label: 'Part 7 — 閱讀理解 三篇×1', type: 'reading', part: 7, count: 9, diff: 'hard' },
   ];
 
   // 建立 log 項目
@@ -798,7 +824,7 @@ function renderFullTest(questions) {
   const partStartNum = { 5: 101, 6: 131, 7: 147 };
   parts.forEach(p => {
     if (p.qs.length === 0) return;
-    let num = partStartNum[p.part] || 101;
+    const num = partStartNum[p.part] || 101;
     const endNum = num + p.qs.length - 1;
     const header = document.createElement('div');
     header.className = 'part-header';
@@ -811,17 +837,63 @@ function renderFullTest(questions) {
       <div class="part-progress"><b>${p.qs.length}</b> 題</div>
     `;
     area.appendChild(header);
-    p.qs.forEach(q => {
-      renderQuestion(q, num++, area);
-    });
+    renderWithPassages(p.qs, area, num);
   });
+}
+
+// ── 題型改變時調整題數 ──
+function onTypeChange() {
+  const type = document.getElementById('questionType').value;
+  const countEl = document.getElementById('count');
+  const countField = countEl.closest('.field').querySelector('label');
+  if (type === 'text_completion') {
+    countEl.value = 4;
+    countEl.disabled = true;
+    countField.textContent = '題數（固定4題/篇）';
+  } else {
+    countEl.disabled = false;
+    countField.textContent = '題數 (1–30)';
+  }
+}
+
+// ── 將題目依 passage 分組 ──
+function groupByPassage(questions) {
+  const groups = [];
+  let prev = null;
+  for (const q of questions) {
+    if (q.passage && prev && q.passage === prev.passage) {
+      groups[groups.length - 1].qs.push(q);
+    } else {
+      groups.push({ passage: q.passage || null, qs: [q] });
+    }
+    prev = q;
+  }
+  return groups;
 }
 
 // ── 渲染：快速練習 ──
 function renderAllQuestions(questions) {
   const area = document.getElementById('questionsArea');
   area.innerHTML = '';
-  questions.forEach((q, i) => renderQuestion(q, i + 1, area));
+  renderWithPassages(questions, area, 1);
+}
+
+// ── 渲染含 passage 分組（共用）──
+function renderWithPassages(questions, container, startNum) {
+  const groups = groupByPassage(questions);
+  let num = startNum;
+  for (const group of groups) {
+    if (group.passage) {
+      const block = document.createElement('div');
+      block.className = 'passage-block';
+      block.innerHTML = `<div class="passage-label">閱讀文章</div>${escHtml(group.passage).replace(/\n/g, '<br>')}`;
+      container.appendChild(block);
+    }
+    for (const q of group.qs) {
+      renderQuestion(q, num++, container);
+    }
+  }
+  return num;
 }
 
 // ── 渲染單題 ──

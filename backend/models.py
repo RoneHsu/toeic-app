@@ -27,6 +27,7 @@ class QuizQuestion(BaseModel):
     question_type: QuestionType
     difficulty: Difficulty
     toeic_part: int                  # TOEIC Part 5 / 6 / 7
+    passage: Optional[str] = None    # 文章原文（Part 6/7 專用，同組題目共用）
     question: str                    # 題目
     choices: list[Choice]            # 四個選項
     correct_answer: str              # 正確答案 (A/B/C/D)

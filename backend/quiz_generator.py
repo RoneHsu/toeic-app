@@ -32,16 +32,18 @@ Part 5：
 - 商務情境的完整句子，空格位置測試：詞性（名詞/動詞/形容詞/副詞）、時態、語態、連接詞、介係詞、代名詞
 - 四個選項通常為同一字根的不同詞性（如：analysis / analyze / analytical / analytically）
 - 干擾選項需具高度迷惑性
+- passage 欄位留空字串
 
 Part 6：
-- 提供一篇完整的商務文章（e-mail、公告、通知、廣告等，約 150–200 字）
-- 文章中有 4 個空格（編號 131–134、135–138 等）
-- 第 4 題通常考「句子插入」（選哪個完整句子最適合填入）
+- 先寫一篇完整商務文章（e-mail、公告、通知、廣告等，約 150–200 字）
+- 文章中嵌入 4 個空格，標示為 ______（1）、______（2）、______（3）、______（4）
+- 第 4 題考「句子插入」（選哪個完整句子最適合填入）
+- 輸出 4 道題目，每題的 passage 欄位放【相同的完整文章原文】，question 欄位只寫「請選出最適合填入空格（N）的答案。」
 
 Part 7：
-- 提供真實商務文件（信件、廣告、時刻表、表格、新聞稿等）
-- 問題測試：主旨、細節、推論、同義字、句子插入位置
-- 雙篇/三篇文章需有跨篇整合題
+- 先寫一篇完整商務文件（信件、廣告、時刻表、表格、新聞稿等，約 200–300 字）
+- 根據文章出數道問題（主旨、細節、推論、同義字等）
+- 每題的 passage 欄位放【相同的完整文章原文】，question 欄位只寫該題問題
 
 【解析格式】
 ① 正確答案理由（文法/語意分析）
@@ -51,7 +53,8 @@ Part 7：
 回應格式：嚴格使用以下 JSON 陣列，不得包含任何其他文字：
 [
   {
-    "question": "完整題目（Part 6/7 需包含文章原文，用\\n分段）",
+    "passage": "文章原文（Part 5 留空字串，Part 6/7 填完整文章，同組題目填相同文章）",
+    "question": "題目（Part 5 為含空格的完整句子；Part 6 為「請選出最適合填入空格（N）的答案。」；Part 7 為閱讀問題）",
     "choices": [
       {"label": "A", "text": "選項內容"},
       {"label": "B", "text": "選項內容"},
@@ -140,6 +143,7 @@ def generate_questions(req: GenerateRequest) -> list[QuizQuestion]:
                 question_type=req.question_type,
                 difficulty=req.difficulty,
                 toeic_part=req.toeic_part,
+                passage=q.get("passage") or None,
                 question=q["question"],
                 choices=[Choice(**c) for c in q["choices"]],
                 correct_answer=q["correct_answer"],
