@@ -10,7 +10,8 @@ import logging
 import re
 from typing import Optional
 
-from groq import Groq
+from google import genai
+from google.genai import types as genai_types
 from models import (
     QuizQuestion, GenerateRequest, QuestionType, Difficulty, Choice
 )
@@ -18,7 +19,7 @@ from rag import retrieve_context
 
 logger = logging.getLogger(__name__)
 
-client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+_gemini_client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
 SYSTEM_PROMPT = """你是一位專業的 TOEIC 閱讀測驗命題專家，出題風格完全對標《多益閱讀模測解密》系列，符合真實 ETS TOEIC 考試規格。
 
@@ -107,6 +108,13 @@ Part 7 三篇（triple）：
 - 出 5 道題目：5 題全部都基於這三份文件（第1-2題考單一文件細節，第3-4題需比對兩份文件，第5題需交叉比對三份文件），題型含細節、推論、同義字、NOT題
 - 每題 passage 留空字串，passages 欄位放 ["文件1完整原文", "文件2完整原文", "文件3完整原文"]，part7_subtype 填 "triple"
 - 同一組 5 題的 passages 陣列內容必須完全相同
+
+【表格格式規則】
+凡文件中出現表格資料（價格表、時刻表、預算表、報名表等），一律使用 Markdown 管道表格：
+| 欄位1 | 欄位2 | 欄位3 |
+|---|---|---|
+| 資料 | 資料 | 資料 |
+禁止使用空格或 --- 作為欄位分隔，也不可用純文字列出。
 
 【解析格式】
 ① 正確答案理由（文法/語意分析）
@@ -208,17 +216,17 @@ def generate_questions(req: GenerateRequest) -> list[QuizQuestion]:
     # 2. 組合 Prompt
     user_prompt = _build_user_prompt(req, context)
 
-    # 3. 呼叫 Groq
-    response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        max_tokens=12000,
-        temperature=0.7,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_prompt},
-        ],
+    # 3. 呼叫 Gemini
+    combined_prompt = SYSTEM_PROMPT + "\n\n" + user_prompt
+    response = _gemini_client.models.generate_content(
+        model="gemini-1.5-flash",
+        contents=combined_prompt,
+        config=genai_types.GenerateContentConfig(
+            temperature=0.7,
+            max_output_tokens=32768,
+        ),
     )
-    full_text = response.choices[0].message.content
+    full_text = response.text
 
     # 4. 解析 JSON
     questions_raw = _parse_json_response(full_text)
@@ -319,8 +327,8 @@ def _parse_json_response(text: str) -> list[dict]:
     if result is not None:
         return result
 
-    # 從 markdown code block 提取
-    json_match = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
+    # 從 markdown code block 提取（greedy，取最後一個 ``` 避免 passages 內容截斷）
+    json_match = re.search(r"```(?:json)?\s*([\s\S]*)```", text)
     if json_match:
         result = try_parse(json_match.group(1).strip())
         if result is not None:

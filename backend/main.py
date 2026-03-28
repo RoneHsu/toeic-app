@@ -59,8 +59,8 @@ def generate(req: GenerateRequest):
     - **topic**: 指定主題（選填），如 "商務信件"、"會議"
     - **use_rag**: 是否使用講義內容出題（預設 true）
     """
-    if not os.environ.get("GROQ_API_KEY"):
-        raise HTTPException(status_code=500, detail="請設定 GROQ_API_KEY 環境變數")
+    if not os.environ.get("GEMINI_API_KEY"):
+        raise HTTPException(status_code=500, detail="請設定 GEMINI_API_KEY 環境變數")
 
     if req.count < 1 or req.count > 30:
         raise HTTPException(status_code=400, detail="count 必須介於 1 到 30 之間")

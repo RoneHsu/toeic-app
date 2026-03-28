@@ -353,6 +353,32 @@
       white-space: pre-wrap;
       position: relative;
     }
+
+    /* ── PASSAGE TABLE ── */
+    .passage-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 10px 0;
+      font-size: 0.88rem;
+      white-space: normal;
+    }
+    .passage-table th {
+      background: var(--bg3);
+      color: var(--accent);
+      font-weight: 600;
+      padding: 7px 12px;
+      border: 1px solid var(--border);
+      text-align: left;
+    }
+    .passage-table td {
+      padding: 6px 12px;
+      border: 1px solid var(--border);
+      text-align: left;
+      color: var(--text);
+    }
+    .passage-table tr:nth-child(even) td {
+      background: rgba(255,255,255,0.02);
+    }
     .multi-passage-doc:last-child { margin-bottom: 0; }
     .doc-label {
       font-size: 0.7rem;
@@ -616,8 +642,6 @@
             <option value="incomplete_sentence">不完整句子 (Part 5)</option>
             <option value="text_completion">短文填空 (Part 6)</option>
             <option value="reading">閱讀理解 (Part 7)</option>
-            <option value="grammar">文法題</option>
-            <option value="vocabulary">單字題</option>
           </select>
         </div>
         <div class="field" id="subtypeField" style="display:none">
@@ -701,7 +725,7 @@
 </div>
 
 <script>
-const API = window.location.hostname === 'localhost' ? 'http://localhost:8000' : '';
+const API = window.location.hostname === 'localhost' ? 'http://localhost:8002' : '';
 let correctCount = 0, totalAnswered = 0, totalQuestions = 0;
 let _questions = [];
 let timerInterval = null;
@@ -950,6 +974,12 @@ function groupByPassage(questions) {
   let lastPassagesGroup = null;
   for (const q of questions) {
     const key = passageKey(q);
+    // Part 6：連續題目歸入同一群組（Gemini 可能為每題產生略有不同的 passage）
+    if (q.toeic_part === 6 && groups.length > 0 && groups[groups.length - 1].qs[0].toeic_part === 6) {
+      groups[groups.length - 1].qs.push(q);
+      prevKey = key;
+      continue;
+    }
     // double/triple 但 passages 已被後端去重複 → 歸入上一個 passages 群組
     if (!key && q.part7_subtype && (q.part7_subtype === 'double' || q.part7_subtype === 'triple')
         && lastPassagesGroup && lastPassagesGroup.subtype === q.part7_subtype) {
@@ -995,7 +1025,7 @@ function renderWithPassages(questions, container, startNum) {
       group.passages.forEach((p, i) => {
         const docEl = document.createElement('div');
         docEl.className = 'multi-passage-doc';
-        docEl.innerHTML = `<div class="doc-label doc-label-${i+1}">${docLabels[i]}</div>${escHtml(p).replace(/\n/g, '<br>')}`;
+        docEl.innerHTML = `<div class="doc-label doc-label-${i+1}">${docLabels[i]}</div>${renderPassageText(p)}`;
         wrap.appendChild(docEl);
       });
       container.appendChild(wrap);
@@ -1008,7 +1038,7 @@ function renderWithPassages(questions, container, startNum) {
       const numLabel = group.qs.length > 1 ? `第 ${num}–${num + group.qs.length - 1} 題` : `第 ${num} 題`;
       const block = document.createElement('div');
       block.className = 'passage-block';
-      block.innerHTML = `<div class="passage-label"><span style="font-size:0.8rem;color:var(--text3);">${numLabel}</span>閱讀文章<span class="tag ${partTag}" style="font-size:0.7rem;padding:2px 8px;">Part ${firstQ.toeic_part}</span><span class="tag ${diffTag}" style="font-size:0.7rem;padding:2px 8px;">${diffLabel}</span></div>${escHtml(group.passage).replace(/\n/g, '<br>')}`;
+      block.innerHTML = `<div class="passage-label"><span style="font-size:0.8rem;color:var(--text3);">${numLabel}</span>閱讀文章<span class="tag ${partTag}" style="font-size:0.7rem;padding:2px 8px;">Part ${firstQ.toeic_part}</span><span class="tag ${diffTag}" style="font-size:0.7rem;padding:2px 8px;">${diffLabel}</span></div>${renderPassageText(group.passage)}`;
       container.appendChild(block);
     }
     for (const q of group.qs) {
@@ -1045,6 +1075,46 @@ function renderQuestion(q, num, container) {
 
 function escHtml(s) {
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── Markdown table → HTML table ──
+function renderPassageText(text) {
+  const lines = text.split('\n');
+  let html = '';
+  let i = 0;
+  while (i < lines.length) {
+    if (lines[i].trim().startsWith('|')) {
+      // Collect table block
+      const tableLines = [];
+      while (i < lines.length && lines[i].trim().startsWith('|')) {
+        tableLines.push(lines[i]);
+        i++;
+      }
+      // Filter separator rows (|---|---|) — only rows where every cell is purely dashes/colons
+      const isSep = l => {
+        const inner = l.trim().replace(/^\||\|$/g, '');
+        const cells = inner.split('|');
+        return cells.length > 0 && cells.every(c => /^\s*:?-+:?\s*$/.test(c));
+      };
+      const dataRows = tableLines.filter(l => !isSep(l));
+      if (dataRows.length > 0) {
+        html += '<table class="passage-table">';
+        dataRows.forEach((row, idx) => {
+          const cells = row.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim());
+          if (idx === 0) {
+            html += '<thead><tr>' + cells.map(c => `<th>${escHtml(c)}</th>`).join('') + '</tr></thead><tbody>';
+          } else {
+            html += '<tr>' + cells.map(c => `<td>${escHtml(c)}</td>`).join('') + '</tr>';
+          }
+        });
+        html += '</tbody></table>';
+      }
+    } else {
+      html += escHtml(lines[i]) + '<br>';
+      i++;
+    }
+  }
+  return html;
 }
 
 // ── 作答 ──
