@@ -104,7 +104,7 @@ Part 7 三篇（triple）：
   · 培訓手冊（200字）+ 報名表（含姓名/公司/票種選擇表/付款方式）+ 正式邀請信（200字）
   · 行銷提案（200字）+ 截止日期備忘錄（清單格式）+ 確認 Email（150字）
 - 每份文件長度：180–250 個英文單字（表格/問卷需有真實完整的欄位與數字）
-- 出 5 道題目：至少 2 題需交叉比對三份文件才能回答，題型含細節、推論、同義字、NOT題
+- 出 5 道題目：5 題全部都基於這三份文件（第1-2題考單一文件細節，第3-4題需比對兩份文件，第5題需交叉比對三份文件），題型含細節、推論、同義字、NOT題
 - 每題 passage 留空字串，passages 欄位放 ["文件1完整原文", "文件2完整原文", "文件3完整原文"]，part7_subtype 填 "triple"
 - 同一組 5 題的 passages 陣列內容必須完全相同
 
@@ -210,7 +210,7 @@ def generate_questions(req: GenerateRequest) -> list[QuizQuestion]:
 
     # 3. 呼叫 Groq
     response = client.chat.completions.create(
-        model="llama-3.1-8b-instant",
+        model="llama-3.3-70b-versatile",
         max_tokens=12000,
         temperature=0.7,
         messages=[
