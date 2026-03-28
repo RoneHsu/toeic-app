@@ -319,7 +319,54 @@
       letter-spacing: 0.08em;
       margin-bottom: 12px;
       text-transform: uppercase;
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
+
+    /* ── MULTI-PASSAGE（雙篇/三篇）── */
+    .multi-passage-wrap {
+      margin-bottom: 8px;
+    }
+    .multi-passage-header {
+      font-size: 0.72rem;
+      color: var(--accent3);
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+      padding: 4px 10px;
+      background: rgba(16,185,129,0.08);
+      border: 1px solid rgba(16,185,129,0.2);
+      border-radius: 6px;
+      display: inline-block;
+    }
+    .multi-passage-doc {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px 24px;
+      margin-bottom: 10px;
+      font-size: 0.93rem;
+      line-height: 1.8;
+      color: var(--text);
+      white-space: pre-wrap;
+      position: relative;
+    }
+    .multi-passage-doc:last-child { margin-bottom: 0; }
+    .doc-label {
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+      padding: 2px 8px;
+      border-radius: 4px;
+      display: inline-block;
+    }
+    .doc-label-1 { background: rgba(0,212,255,0.1); color: var(--accent); border: 1px solid rgba(0,212,255,0.25); }
+    .doc-label-2 { background: rgba(124,58,237,0.1); color: #a78bfa; border: 1px solid rgba(124,58,237,0.25); }
+    .doc-label-3 { background: rgba(251,191,36,0.1); color: #fbbf24; border: 1px solid rgba(251,191,36,0.25); }
 
     /* ── QUESTION CARD ── */
     .question-card {
@@ -573,6 +620,14 @@
             <option value="vocabulary">單字題</option>
           </select>
         </div>
+        <div class="field" id="subtypeField" style="display:none">
+          <label>文章篇數</label>
+          <select id="part7Subtype" onchange="onSubtypeChange()">
+            <option value="single">單篇</option>
+            <option value="double">雙篇（5題）</option>
+            <option value="triple">三篇（5題）</option>
+          </select>
+        </div>
         <div class="field">
           <label>難度</label>
           <select id="difficulty">
@@ -581,7 +636,7 @@
             <option value="hard">困難</option>
           </select>
         </div>
-        <div class="field">
+        <div class="field" id="countField">
           <label>題數 (1–30)</label>
           <input type="number" id="count" value="5" min="1" max="30" />
         </div>
@@ -723,13 +778,21 @@ async function startQuick() {
   document.getElementById('loadingDesc').textContent = '正在從講義檢索相關段落';
 
   try {
+    const qtype = document.getElementById('questionType').value;
+    const subtype = qtype === 'reading' ? document.getElementById('part7Subtype').value : null;
+    // Part 7 題數自動決定：single=9題(約3-4篇)，double/triple=5題(1組)
+    const p7count = { single: 9, double: 5, triple: 5 };
+    const count = qtype === 'reading'
+      ? p7count[subtype] || 9
+      : Math.min(30, parseInt(document.getElementById('count').value) || 5);
     const params = {
-      question_type: document.getElementById('questionType').value,
+      question_type: qtype,
       difficulty: document.getElementById('difficulty').value,
-      toeic_part: { incomplete_sentence: 5, text_completion: 6, reading: 7, grammar: 5, vocabulary: 5 }[document.getElementById('questionType').value] || 5,
-      count: Math.min(30, parseInt(document.getElementById('count').value) || 5),
+      toeic_part: { incomplete_sentence: 5, text_completion: 6, reading: 7, grammar: 5, vocabulary: 5 }[qtype] || 5,
+      count,
       use_rag: true,
     };
+    if (subtype) params.part7_subtype = subtype;
 
     const qs = await fetchQuestions(params);
     _questions = qs;
@@ -758,18 +821,20 @@ async function startFullTest() {
   document.getElementById('loadingDesc').textContent = '共需生成 100 題，請稍候約 30–60 秒';
 
   const sections = [
-    { label: 'Part 5 — 不完整句子 (1–15)', type: 'incomplete_sentence', part: 5, count: 15, diff: 'medium' },
-    { label: 'Part 5 — 不完整句子 (16–30)', type: 'incomplete_sentence', part: 5, count: 15, diff: 'hard' },
-    { label: 'Part 6 — 短文填空 第1篇', type: 'text_completion', part: 6, count: 4, diff: 'medium' },
-    { label: 'Part 6 — 短文填空 第2篇', type: 'text_completion', part: 6, count: 4, diff: 'medium' },
-    { label: 'Part 6 — 短文填空 第3篇', type: 'text_completion', part: 6, count: 4, diff: 'hard' },
-    { label: 'Part 6 — 短文填空 第4篇', type: 'text_completion', part: 6, count: 4, diff: 'hard' },
-    { label: 'Part 7 — 閱讀理解 單篇×3', type: 'reading', part: 7, count: 9, diff: 'medium' },
-    { label: 'Part 7 — 閱讀理解 單篇×3', type: 'reading', part: 7, count: 9, diff: 'medium' },
-    { label: 'Part 7 — 閱讀理解 雙篇×2', type: 'reading', part: 7, count: 9, diff: 'hard' },
-    { label: 'Part 7 — 閱讀理解 雙篇×2', type: 'reading', part: 7, count: 9, diff: 'hard' },
-    { label: 'Part 7 — 閱讀理解 三篇×1', type: 'reading', part: 7, count: 9, diff: 'hard' },
-    { label: 'Part 7 — 閱讀理解 三篇×1', type: 'reading', part: 7, count: 9, diff: 'hard' },
+    { label: 'Part 5 — 不完整句子 (1–15)',    type: 'incomplete_sentence', part: 5, count: 15, diff: 'medium', subtype: null },
+    { label: 'Part 5 — 不完整句子 (16–30)',   type: 'incomplete_sentence', part: 5, count: 15, diff: 'hard',   subtype: null },
+    { label: 'Part 6 — 短文填空 第1篇',        type: 'text_completion',     part: 6, count: 4,  diff: 'medium', subtype: null },
+    { label: 'Part 6 — 短文填空 第2篇',        type: 'text_completion',     part: 6, count: 4,  diff: 'medium', subtype: null },
+    { label: 'Part 6 — 短文填空 第3篇',        type: 'text_completion',     part: 6, count: 4,  diff: 'hard',   subtype: null },
+    { label: 'Part 6 — 短文填空 第4篇',        type: 'text_completion',     part: 6, count: 4,  diff: 'hard',   subtype: null },
+    { label: 'Part 7 — 單篇閱讀 第1批',        type: 'reading',             part: 7, count: 10, diff: 'medium', subtype: 'single' },
+    { label: 'Part 7 — 單篇閱讀 第2批',        type: 'reading',             part: 7, count: 9,  diff: 'medium', subtype: 'single' },
+    { label: 'Part 7 — 單篇閱讀 第3批',        type: 'reading',             part: 7, count: 10, diff: 'hard',   subtype: 'single' },
+    { label: 'Part 7 — 雙篇閱讀 第1組（5題）', type: 'reading',             part: 7, count: 5,  diff: 'hard',   subtype: 'double' },
+    { label: 'Part 7 — 雙篇閱讀 第2組（5題）', type: 'reading',             part: 7, count: 5,  diff: 'hard',   subtype: 'double' },
+    { label: 'Part 7 — 三篇閱讀 第1組（5題）', type: 'reading',             part: 7, count: 5,  diff: 'hard',   subtype: 'triple' },
+    { label: 'Part 7 — 三篇閱讀 第2組（5題）', type: 'reading',             part: 7, count: 5,  diff: 'hard',   subtype: 'triple' },
+    { label: 'Part 7 — 三篇閱讀 第3組（5題）', type: 'reading',             part: 7, count: 5,  diff: 'hard',   subtype: 'triple' },
   ];
 
   // 建立 log 項目
@@ -787,6 +852,7 @@ async function startFullTest() {
         toeic_part: s.part,
         count: s.count,
         difficulty: s.diff,
+        part7_subtype: s.subtype || null,
         use_rag: true,
       });
       allQuestions = allQuestions.concat(qs);
@@ -845,28 +911,64 @@ function renderFullTest(questions) {
 function onTypeChange() {
   const type = document.getElementById('questionType').value;
   const countEl = document.getElementById('count');
-  const countField = countEl.closest('.field').querySelector('label');
-  if (type === 'text_completion') {
+  const countField = document.getElementById('countField');
+  const countLabel = countField.querySelector('label');
+  const subtypeField = document.getElementById('subtypeField');
+
+  if (type === 'reading') {
+    subtypeField.style.display = 'block';
+    countField.style.display = 'none';   // Part 7：隱藏題數
+    onSubtypeChange();
+  } else if (type === 'text_completion') {
+    subtypeField.style.display = 'none';
+    countField.style.display = 'block';
     countEl.value = 4;
     countEl.disabled = true;
-    countField.textContent = '題數（固定4題/篇）';
+    countLabel.textContent = '題數（固定4題/篇）';
   } else {
+    subtypeField.style.display = 'none';
+    countField.style.display = 'block';
     countEl.disabled = false;
-    countField.textContent = '題數 (1–30)';
+    countLabel.textContent = '題數 (1–30)';
   }
+}
+
+function onSubtypeChange() {
+  // Part 7 題數由系統決定，不需要顯示
+}
+
+// ── 取得分組 key ──
+function passageKey(q) {
+  if (q.passages && q.passages.length > 0) return JSON.stringify(q.passages);
+  return q.passage || null;
 }
 
 // ── 將題目依 passage 分組 ──
 function groupByPassage(questions) {
   const groups = [];
-  let prev = null;
+  let prevKey = undefined;
+  let lastPassagesGroup = null;
   for (const q of questions) {
-    if (q.passage && prev && q.passage === prev.passage) {
+    const key = passageKey(q);
+    // double/triple 但 passages 已被後端去重複 → 歸入上一個 passages 群組
+    if (!key && q.part7_subtype && (q.part7_subtype === 'double' || q.part7_subtype === 'triple')
+        && lastPassagesGroup && lastPassagesGroup.subtype === q.part7_subtype) {
+      lastPassagesGroup.qs.push(q);
+      continue;
+    }
+    if (key && key === prevKey) {
       groups[groups.length - 1].qs.push(q);
     } else {
-      groups.push({ passage: q.passage || null, qs: [q] });
+      const group = {
+        passage: q.passage || null,
+        passages: q.passages || null,
+        subtype: q.part7_subtype || null,
+        qs: [q],
+      };
+      groups.push(group);
+      if (q.passages && q.passages.length > 0) lastPassagesGroup = group;
     }
-    prev = q;
+    prevKey = key;
   }
   return groups;
 }
@@ -883,10 +985,30 @@ function renderWithPassages(questions, container, startNum) {
   const groups = groupByPassage(questions);
   let num = startNum;
   for (const group of groups) {
-    if (group.passage) {
+    if (group.passages && group.passages.length > 0) {
+      // 雙篇 / 三篇
+      const docLabels = ['Document 1', 'Document 2', 'Document 3'];
+      const subtypeLabel = group.subtype === 'triple' ? '三篇閱讀' : '雙篇閱讀';
+      const wrap = document.createElement('div');
+      wrap.className = 'multi-passage-wrap';
+      wrap.innerHTML = `<div class="multi-passage-header">${subtypeLabel} — Questions ${num}–${num + group.qs.length - 1}</div>`;
+      group.passages.forEach((p, i) => {
+        const docEl = document.createElement('div');
+        docEl.className = 'multi-passage-doc';
+        docEl.innerHTML = `<div class="doc-label doc-label-${i+1}">${docLabels[i]}</div>${escHtml(p).replace(/\n/g, '<br>')}`;
+        wrap.appendChild(docEl);
+      });
+      container.appendChild(wrap);
+    } else if (group.passage) {
+      // 單篇
+      const firstQ = group.qs[0];
+      const partTag = { 5: 'tag-p5', 6: 'tag-p6', 7: 'tag-p7' }[firstQ.toeic_part] || 'tag-p5';
+      const diffTag = { easy: 'tag-easy', medium: 'tag-medium', hard: 'tag-hard' }[firstQ.difficulty] || '';
+      const diffLabel = { easy: '簡單', medium: '中等', hard: '困難' }[firstQ.difficulty] || '';
+      const numLabel = group.qs.length > 1 ? `第 ${num}–${num + group.qs.length - 1} 題` : `第 ${num} 題`;
       const block = document.createElement('div');
       block.className = 'passage-block';
-      block.innerHTML = `<div class="passage-label">閱讀文章</div>${escHtml(group.passage).replace(/\n/g, '<br>')}`;
+      block.innerHTML = `<div class="passage-label"><span style="font-size:0.8rem;color:var(--text3);">${numLabel}</span>閱讀文章<span class="tag ${partTag}" style="font-size:0.7rem;padding:2px 8px;">Part ${firstQ.toeic_part}</span><span class="tag ${diffTag}" style="font-size:0.7rem;padding:2px 8px;">${diffLabel}</span></div>${escHtml(group.passage).replace(/\n/g, '<br>')}`;
       container.appendChild(block);
     }
     for (const q of group.qs) {
@@ -905,12 +1027,7 @@ function renderQuestion(q, num, container) {
   const card = document.createElement('div');
   card.className = 'question-card';
   card.innerHTML = `
-    <div class="q-meta">
-      <span class="tag ${partTag}">Part ${q.toeic_part}</span>
-      <span class="tag ${diffTag}">${diffLabel}</span>
-      <span class="q-num">第 ${num} 題</span>
-    </div>
-    <div class="q-text">${q.question.replace(/\n/g, '<br>')}</div>
+    ${(q.toeic_part === 5 || q.toeic_part === 6) ? '' : `<div class="q-text">${q.question.replace(/\n/g, '<br>')}</div>`}
     <div class="choices" id="choices-${q.id}">
       ${q.choices.map(c => `
         <button class="choice-btn" onclick="answer('${q.id}','${c.label}','${q.correct_answer}',this)"
