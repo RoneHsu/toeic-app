@@ -229,7 +229,7 @@ def generate_questions(req: GenerateRequest) -> list[QuizQuestion]:
 
     # 3. 呼叫 Gemini
     response = _get_gemini_client().models.generate_content(
-        model="gemini-2.0-flash",
+        model="gemini-2.0-flash-lite",
         contents=user_prompt,
         config=genai_types.GenerateContentConfig(
             system_instruction=SYSTEM_PROMPT,
