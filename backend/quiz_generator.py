@@ -229,17 +229,34 @@ def generate_questions(req: GenerateRequest) -> list[QuizQuestion]:
     # 2. 組合 Prompt
     user_prompt = _build_user_prompt(req, context)
 
-    # 3. 呼叫 OpenRouter
-    response = _get_client().chat.completions.create(
-        model="deepseek/deepseek-chat-v3-0324:free",
-        max_tokens=32768,
-        temperature=0.7,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_prompt},
-        ],
-    )
-    full_text = response.choices[0].message.content
+    # 3. 呼叫 OpenRouter（依序嘗試，遇到限流自動換下一個）
+    _MODELS = [
+        "nvidia/nemotron-3-super-120b-a12b:free",
+        "nousresearch/hermes-3-llama-3.1-405b:free",
+        "google/gemma-3-27b-it:free",
+        "meta-llama/llama-3.3-70b-instruct:free",
+    ]
+    last_err = None
+    full_text = None
+    for model in _MODELS:
+        try:
+            response = _get_client().chat.completions.create(
+                model=model,
+                max_tokens=16384,
+                temperature=0.7,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_prompt},
+                ],
+            )
+            full_text = response.choices[0].message.content
+            logger.info(f"使用模型: {model}")
+            break
+        except Exception as e:
+            logger.warning(f"模型 {model} 失敗: {e}")
+            last_err = e
+    if full_text is None:
+        raise last_err
 
     # 4. 解析 JSON
     questions_raw = _parse_json_response(full_text)
