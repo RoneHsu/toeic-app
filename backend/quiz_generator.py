@@ -10,8 +10,7 @@ import logging
 import re
 from typing import Optional
 
-from google import genai
-from google.genai import types as genai_types
+from openai import OpenAI
 from models import (
     QuizQuestion, GenerateRequest, QuestionType, Difficulty, Choice
 )
@@ -19,16 +18,19 @@ from rag import retrieve_context
 
 logger = logging.getLogger(__name__)
 
-_gemini_client = None
+_openrouter_client = None
 
-def _get_gemini_client():
-    global _gemini_client
-    if _gemini_client is None:
-        api_key = os.environ.get("GEMINI_API_KEY")
+def _get_client():
+    global _openrouter_client
+    if _openrouter_client is None:
+        api_key = os.environ.get("OPENROUTER_API_KEY")
         if not api_key:
-            raise ValueError("GEMINI_API_KEY environment variable is not set")
-        _gemini_client = genai.Client(api_key=api_key)
-    return _gemini_client
+            raise ValueError("OPENROUTER_API_KEY environment variable is not set")
+        _openrouter_client = OpenAI(
+            api_key=api_key,
+            base_url="https://openrouter.ai/api/v1",
+        )
+    return _openrouter_client
 
 SYSTEM_PROMPT = """你是一位專業的 TOEIC 閱讀測驗命題專家，出題風格完全對標《多益閱讀模測解密》系列，符合真實 ETS TOEIC 考試規格。
 
@@ -227,17 +229,17 @@ def generate_questions(req: GenerateRequest) -> list[QuizQuestion]:
     # 2. 組合 Prompt
     user_prompt = _build_user_prompt(req, context)
 
-    # 3. 呼叫 Gemini
-    response = _get_gemini_client().models.generate_content(
-        model="gemini-2.0-flash-lite",
-        contents=user_prompt,
-        config=genai_types.GenerateContentConfig(
-            system_instruction=SYSTEM_PROMPT,
-            temperature=0.7,
-            max_output_tokens=32768,
-        ),
+    # 3. 呼叫 OpenRouter
+    response = _get_client().chat.completions.create(
+        model="google/gemini-2.0-flash-exp:free",
+        max_tokens=32768,
+        temperature=0.7,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ],
     )
-    full_text = response.text
+    full_text = response.choices[0].message.content
 
     # 4. 解析 JSON
     questions_raw = _parse_json_response(full_text)
