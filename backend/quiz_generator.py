@@ -19,7 +19,16 @@ from rag import retrieve_context
 
 logger = logging.getLogger(__name__)
 
-_gemini_client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+_gemini_client = None
+
+def _get_gemini_client():
+    global _gemini_client
+    if _gemini_client is None:
+        api_key = os.environ.get("GEMINI_API_KEY")
+        if not api_key:
+            raise ValueError("GEMINI_API_KEY environment variable is not set")
+        _gemini_client = genai.Client(api_key=api_key)
+    return _gemini_client
 
 SYSTEM_PROMPT = """你是一位專業的 TOEIC 閱讀測驗命題專家，出題風格完全對標《多益閱讀模測解密》系列，符合真實 ETS TOEIC 考試規格。
 
@@ -218,8 +227,8 @@ def generate_questions(req: GenerateRequest) -> list[QuizQuestion]:
 
     # 3. 呼叫 Gemini
     combined_prompt = SYSTEM_PROMPT + "\n\n" + user_prompt
-    response = _gemini_client.models.generate_content(
-        model="gemini-1.5-flash",
+    response = _get_gemini_client().models.generate_content(
+        model="gemini-2.0-flash",
         contents=combined_prompt,
         config=genai_types.GenerateContentConfig(
             temperature=0.7,
