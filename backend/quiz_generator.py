@@ -218,6 +218,8 @@ def _build_user_prompt(req: GenerateRequest, context: Optional[str]) -> str:
 
 
 def generate_questions(req: GenerateRequest) -> list[QuizQuestion]:
+    import time
+    _t0 = time.time()
     # 1. RAG 檢索
     context = None
     if req.use_rag:
@@ -301,7 +303,7 @@ def generate_questions(req: GenerateRequest) -> list[QuizQuestion]:
 
     # 裁切到請求數量（buffer 多一題以防 LLM 少生成）
     result = result[:req.count]
-    logger.info(f"成功生成 {len(result)} 道題目")
+    logger.info(f"成功生成 {len(result)} 道題目（耗時 {time.time() - _t0:.1f}s）")
     return result
 
 
