@@ -228,12 +228,11 @@ def generate_questions(req: GenerateRequest) -> list[QuizQuestion]:
     user_prompt = _build_user_prompt(req, context)
 
     # 3. 呼叫 Gemini
-    combined_prompt = SYSTEM_PROMPT + "\n\n" + user_prompt
-    combined_prompt = SYSTEM_PROMPT + "\n\n" + user_prompt
     response = _get_gemini_client().models.generate_content(
         model="gemini-2.0-flash",
-        contents=combined_prompt,
+        contents=user_prompt,
         config=genai_types.GenerateContentConfig(
+            system_instruction=SYSTEM_PROMPT,
             temperature=0.7,
             max_output_tokens=32768,
         ),
