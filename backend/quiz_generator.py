@@ -231,7 +231,7 @@ def generate_questions(req: GenerateRequest) -> list[QuizQuestion]:
 
     # 3. 呼叫 OpenRouter
     response = _get_client().chat.completions.create(
-        model="google/gemini-2.0-flash-exp:free",
+        model="meta-llama/llama-3.3-70b-instruct:free",
         max_tokens=32768,
         temperature=0.7,
         messages=[
