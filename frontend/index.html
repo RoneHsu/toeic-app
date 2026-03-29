@@ -1079,6 +1079,8 @@ function escHtml(s) {
 
 // ── Markdown table → HTML table ──
 function renderPassageText(text) {
+  // Normalize literal \n (from LLM JSON double-escaping) to actual newlines
+  text = text.replace(/\\n/g, '\n');
   const lines = text.split('\n');
   let html = '';
   let i = 0;

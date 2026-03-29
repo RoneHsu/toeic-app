@@ -192,8 +192,10 @@ def _build_user_prompt(req: GenerateRequest, context: Optional[str]) -> str:
         prompt_parts.append(f"- 文章篇數：{subtype_desc.get(req.part7_subtype, req.part7_subtype)}")
         if req.part7_subtype == "double":
             prompt_parts.append("- 注意：必須輸出 5 題，passages 欄位放包含兩份文件的陣列，passage 留空字串，part7_subtype 填 \"double\"")
+            prompt_parts.append("- 每份文件至少 200 個英文單字，正式信件需含日期、稱謂、4–5 段正文、結語、署名，Email 需含 From/To/Subject/Date 標頭")
         elif req.part7_subtype == "triple":
             prompt_parts.append("- 注意：必須輸出 5 題，passages 欄位放包含三份文件的陣列，passage 留空字串，part7_subtype 填 \"triple\"")
+            prompt_parts.append("- 每份文件至少 180 個英文單字，表格類需有完整欄位與真實數字，不可省略")
 
     if req.topic:
         prompt_parts.append(f"- 主題：{req.topic}（商務情境）")
