@@ -10,8 +10,7 @@ import logging
 import re
 from typing import Optional
 
-from google import genai
-from google.genai import types as genai_types
+from groq import Groq
 from models import (
     QuizQuestion, GenerateRequest, QuestionType, Difficulty, Choice
 )
@@ -19,16 +18,16 @@ from rag import retrieve_context
 
 logger = logging.getLogger(__name__)
 
-_gemini_client = None
+_groq_client = None
 
-def _get_gemini_client():
-    global _gemini_client
-    if _gemini_client is None:
-        api_key = os.environ.get("GEMINI_API_KEY")
+def _get_groq_client():
+    global _groq_client
+    if _groq_client is None:
+        api_key = os.environ.get("GROQ_API_KEY")
         if not api_key:
-            raise ValueError("GEMINI_API_KEY environment variable is not set")
-        _gemini_client = genai.Client(api_key=api_key)
-    return _gemini_client
+            raise ValueError("GROQ_API_KEY environment variable is not set")
+        _groq_client = Groq(api_key=api_key)
+    return _groq_client
 
 SYSTEM_PROMPT = """你是一位專業的 TOEIC 閱讀測驗命題專家，出題風格完全對標《多益閱讀模測解密》系列，符合真實 ETS TOEIC 考試規格。
 
@@ -227,15 +226,16 @@ def generate_questions(req: GenerateRequest) -> list[QuizQuestion]:
 
     # 3. 呼叫 Gemini
     combined_prompt = SYSTEM_PROMPT + "\n\n" + user_prompt
-    response = _get_gemini_client().models.generate_content(
-        model="gemini-2.0-flash",
-        contents=combined_prompt,
-        config=genai_types.GenerateContentConfig(
-            temperature=0.7,
-            max_output_tokens=32768,
-        ),
+    response = _get_groq_client().chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        max_tokens=12000,
+        temperature=0.7,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ],
     )
-    full_text = response.text
+    full_text = response.choices[0].message.content
 
     # 4. 解析 JSON
     questions_raw = _parse_json_response(full_text)
