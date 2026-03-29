@@ -232,19 +232,22 @@ def generate_questions(req: GenerateRequest) -> list[QuizQuestion]:
     user_prompt = _build_user_prompt(req, context)
 
     # 3. 呼叫 OpenRouter（依序嘗試，遇到限流自動換下一個）
+    # 快速模型優先，大模型作備援
     _MODELS = [
-        "nvidia/nemotron-3-super-120b-a12b:free",
-        "nousresearch/hermes-3-llama-3.1-405b:free",
+        "stepfun/step-3.5-flash:free",
         "google/gemma-3-27b-it:free",
         "meta-llama/llama-3.3-70b-instruct:free",
+        "nvidia/nemotron-3-super-120b-a12b:free",
     ]
+    # 動態計算所需 token（每題約 400 token，加 buffer）
+    _max_tokens = min(req.count * 500 + 1000, 8192)
     last_err = None
     full_text = None
     for model in _MODELS:
         try:
             response = _get_client().chat.completions.create(
                 model=model,
-                max_tokens=16384,
+                max_tokens=_max_tokens,
                 temperature=0.7,
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
