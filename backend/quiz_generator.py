@@ -239,8 +239,8 @@ def generate_questions(req: GenerateRequest) -> list[QuizQuestion]:
         "meta-llama/llama-3.3-70b-instruct:free",
         "nvidia/nemotron-3-super-120b-a12b:free",
     ]
-    # 動態計算所需 token（每題約 400 token，加 buffer）
-    _max_tokens = min(req.count * 500 + 1000, 8192)
+    # 動態計算所需 token（每題含中文詳解約 1000 token，加 buffer）
+    _max_tokens = min(req.count * 1200 + 2000, 16000)
     last_err = None
     full_text = None
     for model in _MODELS:
