@@ -18,138 +18,64 @@ from rag import retrieve_context
 
 logger = logging.getLogger(__name__)
 
-_openrouter_client = None
+_client = None
 
 def _get_client():
-    global _openrouter_client
-    if _openrouter_client is None:
-        api_key = os.environ.get("OPENROUTER_API_KEY")
+    global _client
+    if _client is None:
+        api_key = os.environ.get("GROQ_API_KEY")
         if not api_key:
-            raise ValueError("OPENROUTER_API_KEY environment variable is not set")
-        _openrouter_client = OpenAI(
+            raise ValueError("GROQ_API_KEY environment variable is not set")
+        _client = OpenAI(
             api_key=api_key,
-            base_url="https://openrouter.ai/api/v1",
+            base_url="https://api.groq.com/openai/v1",
         )
-    return _openrouter_client
+    return _client
 
-SYSTEM_PROMPT = """你是一位專業的 TOEIC 閱讀測驗命題專家，出題風格完全對標《多益閱讀模測解密》系列，符合真實 ETS TOEIC 考試規格。
+SYSTEM_PROMPT = """你是 TOEIC 閱讀測驗命題專家，出題完全對標 ETS TOEIC 規格，英文程度、句型複雜度、選項設計均須符合真實考試水準。
 
-【TOEIC 閱讀測驗結構】
-- Part 5（Q101–130）：不完整句子，30 題，測試文法與單字
-- Part 6（Q131–146）：短文填空，16 題（4 篇文章 × 4 題），測試段落脈絡理解
-- Part 7（Q147–200）：閱讀理解，54 題，包含單篇（29題）、雙篇（10題）、三篇（15題）
+【TOEIC 閱讀結構】
+- Part 5（Q101–130）：不完整句子 30 題，測文法與單字
+- Part 6（Q131–146）：短文填空 16 題（4 篇 × 4 題）
+- Part 7（Q147–200）：閱讀理解 54 題（單篇 29、雙篇 10、三篇 15）
 
-【出題規則】
-Part 5：
-- 商務情境的完整句子，空格位置測試：詞性（名詞/動詞/形容詞/副詞）、時態、語態、連接詞、介係詞、代名詞
-- 四個選項通常為同一字根的不同詞性（如：analysis / analyze / analytical / analytically）
-- 干擾選項需具高度迷惑性
-- passage 欄位放含空格（_____）的完整句子，空格用五個底線 _____ 標示，passages 為 null
-- question 欄位只寫「請選出最適合填入空格的答案。」
+【Part 5 規則】
+- 完整商務句子含一個空格 ------（六個破折號）
+- 四選項通常為同字根不同詞性（如 analysis/analyze/analytical/analytically），干擾選項高度迷惑
+- 測試：詞性、時態、語態、連接詞、介係詞、代名詞
+- passage 欄位放含空格句子，question 只寫「請選出最適合填入空格的答案。」
 
-Part 6：
-- 先寫一篇完整商務文章（e-mail、公告、通知、廣告等，約 150–200 字）
-- 文章中嵌入 4 個空格，標示為 ______（1）、______（2）、______（3）、______（4）
-- 第 4 題考「句子插入」（選哪個完整句子最適合填入）
-- 輸出 4 道題目，每題的 passage 欄位放【相同的完整文章原文】，question 只寫「請選出最適合填入空格（N）的答案。」
+【Part 6 規則】
+- 完整商務文章（email/公告/通知/廣告，200–250 字），含 4 個空格標示為 ------(1)~------(4)
+- 第 4 題必須考「整句插入」，四選項各為一個完整英文句子
+- 輸出 4 題，每題 passage 放【相同完整文章原文】，question 只寫「請選出最適合填入空格（N）的答案。」
 - passages 為 null，part7_subtype 為 null
 
-Part 7 單篇（single）：
-- 先寫一篇完整商務文件，根據主題選擇下列格式之一，約 200–300 字：
-  ① 信件／電子郵件（Letter / E-mail）
-  ② 廣告／促銷通知（Advertisement）
-  ③ 公告／備忘錄（Notice / Memo）
-  ④ 新聞稿／文章（Article / Press release）
-  ⑤ 時刻表／價目表（Schedule / Price list）
-  ⑥ 表格（Form）：如報名表、問卷、回饋表，包含姓名欄、選項欄、備註欄等結構
-  ⑦ 產品評論（Product review）：含規格、評分項目、總評
-  ⑧ 線上聊天室（Online chat discussion）：多位參與者、含時間戳記，格式完全仿照真實 TOEIC，如：
-     Marcel Deprez  [11:01 A.M.]
-     Hi Babette, have you had a chance to proof the Japanese translation of the manual?
+【Part 7 單篇（single）規則】
+- 一篇商務文件 300–450 字，格式選一：信件/Email/廣告/公告/備忘錄/新聞稿/時刻表/表格/線上聊天室/手機簡訊鏈
+- 線上聊天室格式：「姓名  [時間]\n內容」；手機簡訊：「姓名  時間\n內容」；至少 4 則，有情境轉折
+- 出 2–3 道題，題型：主旨/細節/推論/同義字/NOT/說話者意圖
+- 每題 passage 放完整文章，passages 為 null，part7_subtype 填 "single"
 
-     Babette Mars  [11:04 A.M.]
-     Not yet. I've been busy arranging the details of the Tokyo launch event.
+【Part 7 雙篇（double）規則】
+- 兩份相關商務文件（求職+推薦 / 投訴+回覆 / Email+表格 / 宣傳+詢問 等組合）
+- 每份 280–380 字；正式信件含日期/地址/稱謂/4–5段/結語/署名；Email 含 From/To/Subject/Date
+- 5 道題：Q1-2 各對應一份文件，Q3-5 需交叉比對兩份
+- passages 放 ["文件1完整原文", "文件2完整原文"]，passage 留空，part7_subtype 填 "double"
 
-     Marcel Deprez  [11:07 A.M.]
-     I'm afraid that's not going to work. I think I made a mistake when I told you the deadline.
-  （聊天室至少 4 則訊息，2–3 位參與者，內容需有情境轉折）
-  ⑨ 手機簡訊鏈（Text-message chain）：兩人往返的手機訊息，含時間戳記，格式如：
-     Bill Visconti  11:50 A.M.
-     Hi. Where's the meeting? I'm outside the conference room, but no one else is here.
+【Part 7 三篇（triple）規則】
+- 三份文件圍繞同一情境，至少一位具名人物出現在 2 份以上文件
+- 組合選一：公告+活動網頁+新聞報導 / 徵才廣告+應徵Email+主管備忘錄 / 新聞稿+方案比較表+客戶Email / 研討會邀請+議程表+感謝Email
+- 每份 250–350 字（表格除外），金額/日期/地點跨文件須一致
+- 5 道題：Q1 只需 Doc1、Q2 只需 Doc2、Q3 比對 Doc1+2、Q4 比對 Doc2+3、Q5 交叉三份
+- passages 放 ["文件1", "文件2", "文件3"]，passage 留空，part7_subtype 填 "triple"
 
-     Terri Patel  11:54 A.M.
-     Hi. It's been pushed back until 3:00. I e-mailed everyone about it this morning.
+【表格格式】使用 Markdown 管道格式：| 欄位1 | 欄位2 |\n|---|---|\n| 資料 | 資料 |
 
-     Bill Visconti  11:57 A.M.
-     I didn't get anything. Are you sure you included me on the list of recipients?
+【解析格式】① 正確答案理由（文法/語意）② 錯誤選項逐一說明 ③ 關鍵文法點
 
-     Terri Patel  11:59 A.M.
-     Fairly sure. I'll double check as soon as I get back to my desk.
-  （簡訊鏈至少 4 則訊息，2 人對話，內容需有情境轉折）
-- 根據文章隨機出 2 或 3 道問題（每次隨機，不固定），題型包含：主旨、細節、推論、同義字、NOT/EXCEPT、說話者意圖（What does X mean when he/she writes "..."?）
-- 每題 passage 欄位放【相同的完整文章原文】，passages 為 null，part7_subtype 填 "single"
-
-Part 7 雙篇（double）：
-- 先寫兩份相關但不同的商務文件，從以下組合中選擇一種：
-  · 求職信（200字）+ 推薦信（250字）：信件含日期、地址、稱謂、4–5段正文、結語、簽名
-  · 投訴信（200字）+ 官方回覆信（200字）：各含事件描述、爭議細節、解決方案
-  · 宣傳手冊/廣告（150字）+ 詢問信（200字）：手冊含活動說明、費用、報名方式
-  · Email（200字）+ 預算/估價表格：表格含 Manufacturer/Item/Unit Price/Quantity/Total 等欄位，數字真實具體
-  · 行程公告信（200字，含項目日期與說明）+ 報名 Email（150字）
-  · 組織網頁介紹（200字）+ 活動行程表（含 Date/Time/Place/Description 欄位，至少 4 個活動）
-  · 行銷提案（含 Background/Concept/Deadlines 小標）+ 通知備忘錄（含截止日期清單）
-  · 會議記錄（含 Present/各議題小標/決議）+ 感謝 Email（150字）
-  · 客戶滿意度問卷（含姓名、分支、5道選擇題、手寫意見）+ 分析報告 Email（200字）
-- 每份文件長度：200–260 個英文單字（表格/問卷除外，但欄位需完整且數字真實）
-- 正式信件必須包含：日期、寄件人地址（可選）、收件人姓名/職稱、稱謂（Dear ...）、4–5段完整正文、結語（Sincerely/Best regards）、署名
-- Email 必須包含：From/To/Subject/Date 標頭欄（表格格式）、稱謂、3–4段正文、結語、署名
-- 出 5 道題目：前 2 題各自對應一份文件，後 3 題需交叉比對兩份文件才能回答
-- 每題 passage 留空字串，passages 欄位放 ["文件1完整原文", "文件2完整原文"]，part7_subtype 填 "double"
-- 同一組 5 題的 passages 陣列內容必須完全相同
-
-Part 7 三篇（triple）：
-- 先寫三份相關的商務文件，從以下組合中選擇一種：
-  · 廣告/手冊（150字）+ 客戶 Q&A 論壇（4–5則留言，各含 username 與日期）+ 文章/新聞稿（200字）
-  · 頒獎典禮議程（含時間/活動/講者欄位，至少 6 個項目）+ Email 感謝信（200字）+ 活動網頁（150字）
-  · 邀請函（200字）+ 研討會時刻表（含 Session/Speaker/Time/Room 欄位，至少 5 場）+ 確認 Email（180字）
-  · 新聞稿（200字）+ 訂閱價格表格（含 Plan/Monthly/Yearly 欄位，至少 3 方案）+ Email（150字）
-  · 培訓手冊（200字）+ 報名表（含姓名/公司/票種選擇表/付款方式）+ 正式邀請信（200字）
-  · 行銷提案（200字）+ 截止日期備忘錄（清單格式）+ 確認 Email（150字）
-- 每份文件長度：180–250 個英文單字（表格/問卷需有真實完整的欄位與數字）
-- 出 5 道題目：5 題全部都基於這三份文件（第1-2題考單一文件細節，第3-4題需比對兩份文件，第5題需交叉比對三份文件），題型含細節、推論、同義字、NOT題
-- 每題 passage 留空字串，passages 欄位放 ["文件1完整原文", "文件2完整原文", "文件3完整原文"]，part7_subtype 填 "triple"
-- 同一組 5 題的 passages 陣列內容必須完全相同
-
-【表格格式規則】
-凡文件中出現表格資料（價格表、時刻表、預算表、報名表等），一律使用 Markdown 管道表格：
-| 欄位1 | 欄位2 | 欄位3 |
-|---|---|---|
-| 資料 | 資料 | 資料 |
-禁止使用空格或 --- 作為欄位分隔，也不可用純文字列出。
-
-【解析格式】
-① 正確答案理由（文法/語意分析）
-② 錯誤選項逐一說明
-③ 關鍵文法點或單字用法
-
-回應格式：嚴格使用以下 JSON 陣列，不得包含任何其他文字：
-[
-  {
-    "part7_subtype": null,
-    "passage": "文章原文（Part 5 填含空格_____的句子；Part 6/Part 7 單篇填完整文章；Part 7 雙篇/三篇留空字串）",
-    "passages": null,
-    "question": "題目",
-    "choices": [
-      {"label": "A", "text": "選項內容"},
-      {"label": "B", "text": "選項內容"},
-      {"label": "C", "text": "選項內容"},
-      {"label": "D", "text": "選項內容"}
-    ],
-    "correct_answer": "A",
-    "explanation": "詳細解析（中文）",
-    "grammar_point": "文法重點標籤"
-  }
-]"""
+回應格式：嚴格 JSON 陣列，不含任何其他文字：
+[{"part7_subtype":null,"passage":"...","passages":null,"question":"...","choices":[{"label":"A","text":"..."},{"label":"B","text":"..."},{"label":"C","text":"..."},{"label":"D","text":"..."}],"correct_answer":"A","explanation":"...","grammar_point":"..."}]"""
 
 
 def _build_user_prompt(req: GenerateRequest, context: Optional[str]) -> str:
@@ -195,17 +121,18 @@ def _build_user_prompt(req: GenerateRequest, context: Optional[str]) -> str:
         prompt_parts.append(f"- 文章篇數：{subtype_desc.get(req.part7_subtype, req.part7_subtype)}")
         if req.part7_subtype == "double":
             prompt_parts.append("- 注意：必須輸出 5 題，passages 欄位放包含兩份文件的陣列，passage 留空字串，part7_subtype 填 \"double\"")
-            prompt_parts.append("- 每份文件至少 200 個英文單字，正式信件需含日期、稱謂、4–5 段正文、結語、署名，Email 需含 From/To/Subject/Date 標頭")
+            prompt_parts.append("- 每份文件至少 280 個英文單字，正式信件需含日期、稱謂、4–5 段正文、結語、署名，Email 需含 From/To/Subject/Date 標頭")
         elif req.part7_subtype == "triple":
             prompt_parts.append("- 注意：必須輸出 5 題，passages 欄位放包含三份文件的陣列，passage 留空字串，part7_subtype 填 \"triple\"")
-            prompt_parts.append("- 每份文件至少 180 個英文單字，表格類需有完整欄位與真實數字，不可省略")
+            prompt_parts.append("- 每份文件至少 250 個英文單字，表格類需有完整欄位與真實數字，不可省略")
 
     if req.topic:
         prompt_parts.append(f"- 主題：{req.topic}（商務情境）")
 
     if context:
         prompt_parts.append(
-            f"\n以下是來自學員講義的相關內容，請優先根據此內容出題：\n\n"
+            f"\n以下是來自學員講義的參考資料，請從中擷取出題主題與考點，"
+            f"但所有文章內容必須自行創作為全英文商務文件，禁止將講義內容直接作為文章使用：\n\n"
             f"```\n{context}\n```"
         )
     else:
@@ -224,44 +151,30 @@ def generate_questions(req: GenerateRequest) -> list[QuizQuestion]:
     context = None
     if req.use_rag:
         rag_query = f"TOEIC {req.question_type.value} {req.topic or ''}"
-        context = retrieve_context(rag_query, top_k=3)
+        context = retrieve_context(rag_query, top_k=1)
         if context:
             logger.info(f"RAG 找到相關段落，長度: {len(context)} 字元")
 
     # 2. 組合 Prompt
     user_prompt = _build_user_prompt(req, context)
 
-    # 3. 呼叫 OpenRouter（依序嘗試，遇到限流自動換下一個）
-    # 快速模型優先，大模型作備援
-    _MODELS = [
-        "stepfun/step-3.5-flash:free",
-        "google/gemma-3-27b-it:free",
-        "meta-llama/llama-3.3-70b-instruct:free",
-        "nvidia/nemotron-3-super-120b-a12b:free",
-    ]
-    # 動態計算所需 token（每題含中文詳解約 1000 token，加 buffer）
-    _max_tokens = min(req.count * 1200 + 2000, 16000)
-    last_err = None
+    # 3. 呼叫 Gemini API
+    _max_tokens = min(req.count * 1200 + 1500, 9000)
     full_text = None
-    for model in _MODELS:
-        try:
-            response = _get_client().chat.completions.create(
-                model=model,
-                max_tokens=_max_tokens,
-                temperature=0.7,
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": user_prompt},
-                ],
-            )
-            full_text = response.choices[0].message.content
-            logger.info(f"使用模型: {model}")
-            break
-        except Exception as e:
-            logger.warning(f"模型 {model} 失敗: {e}")
-            last_err = e
-    if full_text is None:
-        raise last_err
+    try:
+        response = _get_client().chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            max_tokens=_max_tokens,
+            temperature=0.7,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+        )
+        full_text = response.choices[0].message.content
+        logger.info("使用模型: llama-3.3-70b-versatile (Groq)")
+    except Exception as e:
+        raise RuntimeError(f"Gemini API 呼叫失敗: {e}") from e
 
     # 4. 解析 JSON
     questions_raw = _parse_json_response(full_text)
