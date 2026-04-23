@@ -2,12 +2,14 @@
 RAG 模組：將講義文件向量化，供出題時檢索相關段落。
 支援 PDF、DOCX、TXT、Markdown 格式。
 
-模式一（立即可用）：Simple PDF — 用 pypdf 直接讀取全文，存成 .txt 快取
+模式一（立即可用）：Simple PDF — 用 pypdf 直接讀取全文，存成 .txt 快取，TF-IDF 關鍵字檢索
 模式二（完整 RAG）：LlamaIndex + ChromaDB 向量檢索（需安裝額外套件）
 """
 
 import os
 import json
+import math
+import re
 import logging
 from pathlib import Path
 from typing import Optional
@@ -16,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 CHROMA_DB_PATH = "./chroma_db"
 COLLECTION_NAME = "toeic_notes"
-SIMPLE_CACHE_PATH = "./simple_cache"   # 模式一的快取目錄
+SIMPLE_CACHE_PATH = "./simple_cache"
 
 
 # ── 模式一：Simple PDF（不需要 RAG 套件）────────────────────────────────────
@@ -33,11 +35,53 @@ def _extract_pdf_text(file_path: Path) -> str:
     return "\n\n".join(pages)
 
 
+def _split_paragraphs(text: str, max_chunk: int = 700, overlap: int = 1) -> list[str]:
+    """
+    段落感知分塊：優先按雙換行分段，將短段落合併至 max_chunk 字元，
+    並保留 overlap 個段落作為上下文銜接（比固定字元切割更貼合文章結構）。
+    """
+    paras = [p.strip() for p in re.split(r'\n{2,}', text) if len(p.strip()) > 20]
+    if not paras:
+        # fallback: 固定長度分塊
+        return [
+            text[i:i + max_chunk].strip()
+            for i in range(0, len(text), max_chunk - 100)
+            if text[i:i + max_chunk].strip()
+        ]
+
+    chunks: list[str] = []
+    current: list[str] = []
+    current_len = 0
+
+    for para in paras:
+        if current_len + len(para) > max_chunk and current:
+            chunks.append('\n\n'.join(current))
+            current = current[-overlap:]
+            current_len = sum(len(p) for p in current)
+
+        # Paragraph alone exceeds max_chunk — sub-split it with fixed-size fallback
+        if len(para) > max_chunk:
+            if current:
+                chunks.append('\n\n'.join(current))
+                current = []
+                current_len = 0
+            for i in range(0, len(para), max_chunk - 100):
+                sub = para[i:i + max_chunk].strip()
+                if sub:
+                    chunks.append(sub)
+            continue
+
+        current.append(para)
+        current_len += len(para)
+
+    if current:
+        chunks.append('\n\n'.join(current))
+
+    return chunks
+
+
 def _simple_ingest(file_path: Path) -> dict:
-    """
-    簡易模式：讀取 PDF/TXT/MD 並存成純文字快取。
-    不需要 ChromaDB，馬上可用。
-    """
+    """簡易模式：讀取 PDF/TXT/MD 並存成純文字快取。"""
     os.makedirs(SIMPLE_CACHE_PATH, exist_ok=True)
     cache_file = Path(SIMPLE_CACHE_PATH) / f"{file_path.stem}.txt"
 
@@ -50,8 +94,7 @@ def _simple_ingest(file_path: Path) -> dict:
         if not text.strip():
             return {"success": False, "chunks": 0, "message": "PDF 內容為空（可能是掃描圖片 PDF）"}
 
-        # 按段落分塊，存成 JSON
-        chunks = _split_text(text, chunk_size=800, overlap=100)
+        chunks = _split_paragraphs(text)
         cache_data = {
             "source": file_path.name,
             "total_chars": len(text),
@@ -70,28 +113,32 @@ def _simple_ingest(file_path: Path) -> dict:
         return {"success": False, "chunks": 0, "message": str(e)}
 
 
-def _split_text(text: str, chunk_size: int = 800, overlap: int = 100) -> list[str]:
-    """將長文字切成重疊的段落塊。"""
-    chunks = []
-    start = 0
-    while start < len(text):
-        end = start + chunk_size
-        chunk = text[start:end].strip()
-        if chunk:
-            chunks.append(chunk)
-        start = end - overlap
-    return chunks
+def _tfidf_score(
+    query_terms: list[str],
+    chunk: str,
+    n_docs: int,
+    doc_freqs: dict[str, int],
+) -> float:
+    """TF-IDF 評分：讓稀有但關鍵的詞彙有更高權重，過濾掉 'TOEIC' 等無鑑別力的常見詞。"""
+    chunk_lower = chunk.lower()
+    word_count = max(len(chunk_lower.split()), 1)
+    score = 0.0
+    for term in query_terms:
+        tf = chunk_lower.count(term) / word_count
+        idf = math.log((n_docs + 1) / (doc_freqs.get(term, 0) + 1)) + 1
+        score += tf * idf
+    return score
 
 
 def _simple_retrieve(query: str, top_k: int = 3) -> Optional[str]:
     """
-    簡易模式：用關鍵字比對找最相關的段落（不需要向量資料庫）。
+    簡易模式：TF-IDF 評分找最相關段落（不需要向量資料庫）。
     """
     cache_dir = Path(SIMPLE_CACHE_PATH)
     if not cache_dir.exists():
         return None
 
-    all_chunks = []
+    all_chunks: list[tuple[str, str]] = []
     for cache_file in cache_dir.glob("*.txt"):
         try:
             data = json.loads(cache_file.read_text(encoding="utf-8"))
@@ -103,24 +150,29 @@ def _simple_retrieve(query: str, top_k: int = 3) -> Optional[str]:
     if not all_chunks:
         return None
 
-    # 關鍵字評分
-    query_words = set(query.lower().split())
-    scored = []
-    for chunk, source in all_chunks:
-        chunk_lower = chunk.lower()
-        score = sum(1 for w in query_words if w in chunk_lower)
-        if score > 0:
-            scored.append((score, chunk, source))
+    query_terms = [w for w in query.lower().split() if len(w) > 1]
+    if not query_terms:
+        return "\n\n".join(f"[講義段落]\n{chunk}" for chunk, _ in all_chunks[:top_k])
 
-    if not scored:
-        # 無關鍵字命中時，回傳前幾個段落作為通用背景
-        top = all_chunks[:top_k]
-    else:
-        scored.sort(reverse=True)
+    # 預計算每個 query term 的 document frequency
+    n_docs = len(all_chunks)
+    doc_freqs: dict[str, int] = {
+        term: sum(1 for chunk, _ in all_chunks if term in chunk.lower())
+        for term in query_terms
+    }
+
+    scored = sorted(
+        ((_tfidf_score(query_terms, chunk, n_docs, doc_freqs), chunk, source)
+         for chunk, source in all_chunks),
+        reverse=True,
+    )
+
+    # 回傳有得分的結果；全部為 0 時退回前幾個段落
+    top = [(chunk, src) for score, chunk, src in scored[:top_k] if score > 0]
+    if not top:
         top = [(chunk, src) for _, chunk, src in scored[:top_k]]
 
-    contexts = [f"[講義段落]\n{chunk}" for chunk, _ in top]
-    return "\n\n".join(contexts)
+    return "\n\n".join(f"[講義段落]\n{chunk}" for chunk, _ in top)
 
 
 def _simple_stats() -> dict:
@@ -178,7 +230,6 @@ def ingest_document(file_path: str) -> dict:
     if not path.exists():
         return {"success": False, "chunks": 0, "message": f"找不到檔案: {file_path}"}
 
-    # 嘗試完整 RAG
     storage = _get_vector_storage()
     if storage is not None:
         try:
@@ -194,16 +245,14 @@ def ingest_document(file_path: str) -> dict:
         except Exception as e:
             logger.warning(f"RAG 索引失敗，降級為 Simple 模式: {e}")
 
-    # 降級：Simple 模式
     return _simple_ingest(path)
 
 
 def retrieve_context(query: str, top_k: int = 3) -> Optional[str]:
     """
     檢索與查詢最相關的講義段落。
-    優先使用向量 RAG；若不可用則使用關鍵字比對。
+    優先使用向量 RAG；若不可用則使用 TF-IDF 關鍵字檢索。
     """
-    # 嘗試完整 RAG
     storage = _get_vector_storage()
     if storage is not None and storage["collection"].count() > 0:
         try:
@@ -218,7 +267,6 @@ def retrieve_context(query: str, top_k: int = 3) -> Optional[str]:
         except Exception as e:
             logger.warning(f"RAG 檢索失敗，降級為 Simple: {e}")
 
-    # 降級：Simple 模式
     return _simple_retrieve(query, top_k)
 
 
